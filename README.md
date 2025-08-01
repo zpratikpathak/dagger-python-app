@@ -1,5 +1,6 @@
 # FastAPI Sample Application
 
+
 ## Run the application with Docker Compose
 
 ```
