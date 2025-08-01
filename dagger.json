@@ -1,0 +1,14 @@
+{
+  "name": "book",
+  "engineVersion": "v0.18.5",
+  "sdk": {
+    "source": "python"
+  },
+  "dependencies": [
+    {
+      "name": "workspace",
+      "source": ".dagger/workspace"
+    }
+  ],
+  "source": ".dagger"
+}
