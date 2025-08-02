@@ -1,19 +1,55 @@
-from fastapi import FastAPI, Depends
-from .routers import router
-from .dependencies import init_db, get_db
+import random
+from typing import Annotated
+from datetime import datetime
+
+import dagger
+from dagger import Container, dag, Directory, DefaultPath, Doc, File, Secret, function, object_type, ReturnType
 
 
-def create_app() -> FastAPI:
-    """Create and configure the FastAPI application"""
-    app = FastAPI()
+@object_type
+class Book:
 
-    # Initialize database
-    init_db()
+    source: Annotated[dagger.Directory, DefaultPath(".")]
 
-    # Include routers
-    app.include_router(router, prefix="/api", dependencies=[Depends(get_db)])
+    @function
+    def env(self) -> dagger.Container:
+        """Returns a container with the Python environment and the source code mounted"""
+        return (
+            dag.container()
+            .from_("python:3.11")
+            .with_directory("/app", self.source)
+            .with_workdir("/app")
+            .with_mounted_cache("/root/.cache/pip", dag.cache_volume("python-pip"))
+            .with_exec(["pip", "install", "-r", "requirements.txt"])
+        )
 
-    return app
+    @function
+    async def test(self) -> str:
+        """Runs the tests in the source code and returns the output"""
+        postgresdb =  (
+            dag.container()
+            .from_("postgres:alpine")
+            .with_env_variable("POSTGRES_DB", "app_test")
+            .with_env_variable("POSTGRES_PASSWORD", "secret")
+            .with_exposed_port(5432)
+            .as_service(args=[], use_entrypoint=True)
+        )
 
+        cmd = (
+            self.env()
+            .with_service_binding("db", postgresdb)
+            .with_env_variable("DATABASE_URL", "postgresql://postgres:secret@db/app_test")
+            .with_exec(["pytest"])
+        )
+        return await cmd.stdout()
 
-app = create_app()
+    @function
+    async def publish(self) -> str:
+        """Builds and publishes the application container to a registry"""
+        await self.test()
+        return await (
+            self.env()
+            .with_exposed_port(8000)
+            .with_entrypoint(["fastapi", "run", "main.py"])
+            .publish(f"ttl.sh/my-fastapi-app-{random.randrange(10**8)}")
+        )
